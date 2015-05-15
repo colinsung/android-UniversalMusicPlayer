@@ -26,7 +26,6 @@ android:
 script: ./gradlew build
 
 after_success:
-    - ls -la app/build/outputs/apk
-    - ls -la app
-    - curl -T app/build/outputs/apk/app-debug.apk chunk.io 
-    - curl -T app/build/outputs/apk/app-release-unsigned.apk chunk.io 
+    - ls -la mobile/build/outputs/apk
+    - curl -T mobile/build/outputs/apk/mobile-debug.apk chunk.io 
+    - curl -T mobile/build/outputs/apk/mobile-release-unsigned.apk chunk.io 
