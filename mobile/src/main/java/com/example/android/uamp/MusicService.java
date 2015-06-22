@@ -32,7 +32,9 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.SystemClock;
 import android.service.media.MediaBrowserService;
+import android.support.annotation.NonNull;
 import android.support.v7.media.MediaRouter;
+import android.text.TextUtils;
 
 import com.example.android.uamp.model.MusicProvider;
 import com.example.android.uamp.ui.NowPlayingActivity;
@@ -40,6 +42,7 @@ import com.example.android.uamp.utils.CarHelper;
 import com.example.android.uamp.utils.LogHelper;
 import com.example.android.uamp.utils.MediaIDHelper;
 import com.example.android.uamp.utils.QueueHelper;
+import com.example.android.uamp.utils.WearHelper;
 import com.google.android.gms.cast.ApplicationMetadata;
 import com.google.android.libraries.cast.companionlibrary.cast.VideoCastManager;
 import com.google.android.libraries.cast.companionlibrary.cast.callbacks.VideoCastConsumerImpl;
@@ -142,7 +145,7 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
     // Indicates whether the service was started.
     private boolean mServiceStarted;
     private Bundle mSessionExtras;
-    private DelayedStopHandler mDelayedStopHandler = new DelayedStopHandler(this);
+    private final DelayedStopHandler mDelayedStopHandler = new DelayedStopHandler(this);
     private Playback mPlayback;
     private MediaRouter mMediaRouter;
     private PackageValidator mPackageValidator;
@@ -211,6 +214,8 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
 
         mSessionExtras = new Bundle();
         CarHelper.setSlotReservationFlags(mSessionExtras, true, true, true);
+        WearHelper.setSlotReservationFlags(mSessionExtras, true, true);
+        WearHelper.setUseBackgroundFromTheme(mSessionExtras, true);
         mSession.setExtras(mSessionExtras);
 
         updatePlaybackState(null);
@@ -267,7 +272,8 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
     }
 
     @Override
-    public BrowserRoot onGetRoot(String clientPackageName, int clientUid, Bundle rootHints) {
+    public BrowserRoot onGetRoot(@NonNull String clientPackageName, int clientUid,
+                                 Bundle rootHints) {
         LogHelper.d(TAG, "OnGetRoot: clientPackageName=" + clientPackageName,
                 "; clientUid=" + clientUid + " ; rootHints=", rootHints);
         // To ensure you are not allowing any arbitrary app to browse your app's contents, you
@@ -285,11 +291,18 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
             // needs to run differently when connected to the car, this is where you should handle
             // it.
         }
+        //noinspection StatementWithEmptyBody
+        if (WearHelper.isValidWearCompanionPackage(clientPackageName)) {
+            // Optional: if your app needs to adapt the music library for when browsing from a
+            // Wear device, you should return a different MEDIA ROOT here, and then,
+            // on onLoadChildren, handle it accordingly.
+        }
         return new BrowserRoot(MEDIA_ID_ROOT, null);
     }
 
     @Override
-    public void onLoadChildren(final String parentMediaId, final Result<List<MediaItem>> result) {
+    public void onLoadChildren(@NonNull final String parentMediaId,
+                               @NonNull final Result<List<MediaItem>> result) {
         if (!mMusicProvider.isInitialized()) {
             // Use result.detach to allow calling result.sendResult from another thread:
             result.detach();
@@ -488,7 +501,7 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
         }
 
         @Override
-        public void onCustomAction(String action, Bundle extras) {
+        public void onCustomAction(@NonNull String action, Bundle extras) {
             if (CUSTOM_ACTION_THUMBS_UP.equals(action)) {
                 LogHelper.i(TAG, "onCustomAction: favorite for current track");
                 MediaMetadata track = getCurrentPlayingMusic();
@@ -599,8 +612,11 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
         String musicId = MediaIDHelper.extractMusicIDFromMediaID(
                 queueItem.getDescription().getMediaId());
         MediaMetadata track = mMusicProvider.getMusic(musicId);
+        if (track == null) {
+            throw new IllegalArgumentException("Invalid musicId " + musicId);
+        }
         final String trackId = track.getString(MediaMetadata.METADATA_KEY_MEDIA_ID);
-        if (!musicId.equals(trackId)) {
+        if (!TextUtils.equals(musicId, trackId)) {
             IllegalStateException e = new IllegalStateException("track ID should match musicId.");
             LogHelper.e(TAG, "track ID should match musicId.",
                 " musicId=", musicId, " trackId=", trackId,
@@ -702,8 +718,12 @@ public class MusicService extends MediaBrowserService implements Playback.Callba
             }
             LogHelper.d(TAG, "updatePlaybackState, setting Favorite custom action of music ",
                     musicId, " current favorite=", mMusicProvider.isFavorite(musicId));
-            stateBuilder.addCustomAction(CUSTOM_ACTION_THUMBS_UP, getString(R.string.favorite),
-                    favoriteIcon);
+            Bundle customActionExtras = new Bundle();
+            WearHelper.setShowCustomActionOnWear(customActionExtras, true);
+            stateBuilder.addCustomAction(new PlaybackState.CustomAction.Builder(
+                    CUSTOM_ACTION_THUMBS_UP, getString(R.string.favorite), favoriteIcon)
+                    .setExtras(customActionExtras)
+                    .build());
         }
     }
 
